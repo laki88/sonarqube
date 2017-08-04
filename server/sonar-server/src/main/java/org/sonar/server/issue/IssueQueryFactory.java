@@ -111,7 +111,8 @@ public class IssueQueryFactory {
         .createdAt(parseDateOrDateTime(request.getCreatedAt()))
         .createdBefore(parseEndingDateOrDateTime(request.getCreatedBefore()))
         .facetMode(request.getFacetMode())
-        .organizationUuid(convertOrganizationKeyToUuid(dbSession, request.getOrganization()));
+        .organizationUuid(convertOrganizationKeyToUuid(dbSession, request.getOrganization()))
+        .branch(request.getBranch());
 
       Set<String> allComponentUuids = new HashSet<>();
       boolean effectiveOnComponentOnly = mergeDeprecatedComponentParameters(dbSession,
@@ -121,7 +122,8 @@ public class IssueQueryFactory {
         request.getComponentKeys(),
         request.getComponentRootUuids(),
         request.getComponentRoots(),
-        allComponentUuids);
+        allComponentUuids,
+        request.getBranch());
 
       addComponentParameters(builder, dbSession,
         effectiveOnComponentOnly,
@@ -206,7 +208,8 @@ public class IssueQueryFactory {
     @Nullable Collection<String> componentKeys,
     @Nullable Collection<String> componentRootUuids,
     @Nullable Collection<String> componentRoots,
-    Set<String> allComponentUuids) {
+    Set<String> allComponentUuids,
+    @Nullable String branch) {
     boolean effectiveOnComponentOnly = false;
 
     checkArgument(atMostOneNonNullElement(components, componentUuids, componentKeys, componentRootUuids, componentRoots),
@@ -217,16 +220,16 @@ public class IssueQueryFactory {
       allComponentUuids.addAll(componentRootUuids);
       effectiveOnComponentOnly = false;
     } else if (componentRoots != null) {
-      allComponentUuids.addAll(convertComponentKeysToUuids(session, componentRoots));
+      allComponentUuids.addAll(convertComponentKeysToUuids(session, componentRoots, branch));
       effectiveOnComponentOnly = false;
     } else if (components != null) {
-      allComponentUuids.addAll(convertComponentKeysToUuids(session, components));
+      allComponentUuids.addAll(convertComponentKeysToUuids(session, components, branch));
       effectiveOnComponentOnly = true;
     } else if (componentUuids != null) {
       allComponentUuids.addAll(componentUuids);
       effectiveOnComponentOnly = BooleanUtils.isTrue(onComponentOnly);
     } else if (componentKeys != null) {
-      allComponentUuids.addAll(convertComponentKeysToUuids(session, componentKeys));
+      allComponentUuids.addAll(convertComponentKeysToUuids(session, componentKeys, branch));
       effectiveOnComponentOnly = BooleanUtils.isTrue(onComponentOnly);
     }
     return effectiveOnComponentOnly;
@@ -256,7 +259,7 @@ public class IssueQueryFactory {
     if (projectUuids != null) {
       builder.projectUuids(projectUuids);
     } else if (projectKeys != null) {
-      builder.projectUuids(convertComponentKeysToUuids(session, projectKeys));
+      builder.projectUuids(convertComponentKeysToUuids(session, projectKeys, request.getBranch()));
     }
     builder.moduleUuids(request.getModuleUuids());
     builder.directories(request.getDirectories());
@@ -357,8 +360,10 @@ public class IssueQueryFactory {
     builder.directories(directoryPaths);
   }
 
-  private Collection<String> convertComponentKeysToUuids(DbSession dbSession, Collection<String> componentKeys) {
-    List<String> componentUuids = dbClient.componentDao().selectByKeys(dbSession, componentKeys).stream().map(ComponentDto::uuid).collect(MoreCollectors.toList());
+  private Collection<String> convertComponentKeysToUuids(DbSession dbSession, Collection<String> componentKeys, @Nullable String branch) {
+    List<String> componentUuids = branch == null
+      ? dbClient.componentDao().selectByKeys(dbSession, componentKeys).stream().map(ComponentDto::uuid).collect(MoreCollectors.toList())
+      : dbClient.componentDao().selectByKeysAndBranch(dbSession, componentKeys, branch).stream().map(ComponentDto::uuid).collect(MoreCollectors.toList());
     // If unknown components are given, but no components are found, then all issues will be returned,
     // so we add this hack in order to return no issue in this case.
     if (!componentKeys.isEmpty() && componentUuids.isEmpty()) {

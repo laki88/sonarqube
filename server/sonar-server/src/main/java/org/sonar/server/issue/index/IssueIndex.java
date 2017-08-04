@@ -69,8 +69,8 @@ import org.sonar.server.permission.index.AuthorizationTypeSupport;
 import org.sonar.server.user.UserSession;
 import org.sonar.server.view.index.ViewIndexDefinition;
 
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
@@ -192,11 +192,12 @@ public class IssueIndex {
   private static void addComponentRelatedFilters(IssueQuery query, Map<String, QueryBuilder> filters) {
     QueryBuilder viewFilter = createViewFilter(query.viewUuids());
     QueryBuilder componentFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_COMPONENT_UUID, query.componentUuids());
-    QueryBuilder projectFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_PROJECT_UUID, query.projectUuids());
+    QueryBuilder projectFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_BRANCH_UUID, query.projectUuids());
     QueryBuilder moduleRootFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_MODULE_PATH, query.moduleRootUuids());
     QueryBuilder moduleFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_MODULE_UUID, query.moduleUuids());
     QueryBuilder directoryFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_DIRECTORY_PATH, query.directories());
     QueryBuilder fileFilter = createTermsFilter(IssueIndexDefinition.FIELD_ISSUE_COMPONENT_UUID, query.fileUuids());
+    //filters.put("__is_main_branch", createTermFilter(IssueIndexDefinition.FIELD_ISSUE_IS_MAIN_BRANCH, Boolean.toString(query.getBranch() == null)));
 
     if (BooleanUtils.isTrue(query.onComponentOnly())) {
       filters.put(IssueIndexDefinition.FIELD_ISSUE_COMPONENT_UUID, componentFilter);
@@ -239,7 +240,7 @@ public class IssueIndex {
   }
 
   private static void addSimpleStickyFacetIfNeeded(SearchOptions options, StickyFacetBuilder stickyFacetBuilder, SearchRequestBuilder esSearch,
-                                                   String facetName, String fieldName, Object... selectedValues) {
+    String facetName, String fieldName, Object... selectedValues) {
     if (options.getFacets().contains(facetName)) {
       esSearch.addAggregation(stickyFacetBuilder.buildStickyFacet(fieldName, facetName, DEFAULT_FACET_SIZE, selectedValues));
     }
@@ -663,8 +664,7 @@ public class IssueIndex {
       .setQuery(
         boolQuery()
           .mustNot(existsQuery(IssueIndexDefinition.FIELD_ISSUE_RESOLUTION))
-          .filter(termQuery(IssueIndexDefinition.FIELD_ISSUE_ASSIGNEE, assignee))
-      )
+          .filter(termQuery(IssueIndexDefinition.FIELD_ISSUE_ASSIGNEE, assignee)))
       .setSize(0);
     IntStream.range(0, projectUuids.size()).forEach(i -> {
       String projectUuid = projectUuids.get(i);
@@ -674,11 +674,9 @@ public class IssueIndex {
           .filter(projectUuid)
           .filter(boolQuery()
             .filter(termQuery(IssueIndexDefinition.FIELD_ISSUE_PROJECT_UUID, projectUuid))
-            .filter(rangeQuery(IssueIndexDefinition.FIELD_ISSUE_FUNC_CREATED_AT).gte(new Date(from)))
-          )
+            .filter(rangeQuery(IssueIndexDefinition.FIELD_ISSUE_FUNC_CREATED_AT).gte(new Date(from))))
           .subAggregation(AggregationBuilders.count(projectUuid + "_count").field(IssueIndexDefinition.FIELD_ISSUE_KEY))
-          .subAggregation(AggregationBuilders.max(projectUuid + "_maxFuncCreatedAt").field(IssueIndexDefinition.FIELD_ISSUE_FUNC_CREATED_AT))
-        );
+          .subAggregation(AggregationBuilders.max(projectUuid + "_maxFuncCreatedAt").field(IssueIndexDefinition.FIELD_ISSUE_FUNC_CREATED_AT)));
     });
     SearchResponse response = request.get();
     return response.getAggregations().asList().stream().flatMap(projectBucket -> {

@@ -29,7 +29,6 @@ import org.sonar.api.utils.DateUtils;
 import org.sonar.api.utils.System2;
 import org.sonar.db.DbTester;
 import org.sonar.db.component.ComponentDto;
-import org.sonar.db.component.ComponentTesting;
 import org.sonar.db.component.SnapshotDto;
 import org.sonar.db.organization.OrganizationDto;
 import org.sonar.server.exceptions.BadRequestException;
@@ -45,7 +44,11 @@ import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.sonar.api.utils.DateUtils.addDays;
+import static org.sonar.db.component.ComponentTesting.newDirectory;
+import static org.sonar.db.component.ComponentTesting.newFileDto;
+import static org.sonar.db.component.ComponentTesting.newModuleDto;
 import static org.sonar.db.component.ComponentTesting.newProjectCopy;
+import static org.sonar.db.component.ComponentTesting.newSubView;
 
 public class IssueQueryFactoryTest {
 
@@ -63,8 +66,8 @@ public class IssueQueryFactoryTest {
   public void create_from_parameters() {
     OrganizationDto organization = db.organizations().insert();
     ComponentDto project = db.components().insertPrivateProject(organization);
-    ComponentDto module = db.components().insertComponent(ComponentTesting.newModuleDto(project));
-    ComponentDto file = db.components().insertComponent(ComponentTesting.newFileDto(project));
+    ComponentDto module = db.components().insertComponent(newModuleDto(project));
+    ComponentDto file = db.components().insertComponent(newFileDto(project));
 
     SearchWsRequest request = new SearchWsRequest()
       .setIssues(asList("anIssueKey"))
@@ -181,7 +184,7 @@ public class IssueQueryFactoryTest {
   @Test
   public void fail_if_componentRoots_references_components_with_different_qualifier() {
     ComponentDto project = db.components().insertPrivateProject();
-    ComponentDto file = db.components().insertComponent(ComponentTesting.newFileDto(project));
+    ComponentDto file = db.components().insertComponent(newFileDto(project));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentRoots(asList(project.getDbKey(), file.getDbKey()));
 
@@ -234,18 +237,17 @@ public class IssueQueryFactoryTest {
 
     IssueQuery result = underTest.create(new SearchWsRequest()
       .setComponentUuids(singletonList(application.uuid()))
-      .setSinceLeakPeriod(true)
-    );
+      .setSinceLeakPeriod(true));
 
     assertThat(result.createdAfterByProjectUuids()).containsOnly(
-        entry(project1.uuid(), new Date(analysis1.getPeriodDate())));
+      entry(project1.uuid(), new Date(analysis1.getPeriodDate())));
     assertThat(result.viewUuids()).containsExactlyInAnyOrder(application.uuid());
   }
 
   @Test
   public void return_empty_results_if_not_allowed_to_search_for_subview() {
     ComponentDto view = db.components().insertView();
-    ComponentDto subView = db.components().insertComponent(ComponentTesting.newSubView(view));
+    ComponentDto subView = db.components().insertComponent(newSubView(view));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentRootUuids(asList(subView.uuid()));
 
@@ -282,7 +284,7 @@ public class IssueQueryFactoryTest {
   @Test
   public void should_search_in_tree_with_module_uuid() {
     ComponentDto project = db.components().insertPrivateProject();
-    ComponentDto module = db.components().insertComponent(ComponentTesting.newModuleDto(project));
+    ComponentDto module = db.components().insertComponent(newModuleDto(project));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentUuids(asList(module.uuid()));
 
@@ -294,7 +296,7 @@ public class IssueQueryFactoryTest {
   @Test
   public void param_componentUuids_enables_search_in_directory_tree() {
     ComponentDto project = db.components().insertPrivateProject();
-    ComponentDto dir = db.components().insertComponent(ComponentTesting.newDirectory(project, "src/main/java/foo"));
+    ComponentDto dir = db.components().insertComponent(newDirectory(project, "src/main/java/foo"));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentUuids(asList(dir.uuid()));
 
@@ -308,7 +310,7 @@ public class IssueQueryFactoryTest {
   @Test
   public void param_componentUuids_enables_search_by_file() {
     ComponentDto project = db.components().insertPrivateProject();
-    ComponentDto file = db.components().insertComponent(ComponentTesting.newFileDto(project));
+    ComponentDto file = db.components().insertComponent(newFileDto(project));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentUuids(asList(file.uuid()));
 
@@ -320,13 +322,32 @@ public class IssueQueryFactoryTest {
   @Test
   public void param_componentUuids_enables_search_by_test_file() {
     ComponentDto project = db.components().insertPrivateProject();
-    ComponentDto file = db.components().insertComponent(ComponentTesting.newFileDto(project).setQualifier(Qualifiers.UNIT_TEST_FILE));
+    ComponentDto file = db.components().insertComponent(newFileDto(project).setQualifier(Qualifiers.UNIT_TEST_FILE));
     SearchWsRequest request = new SearchWsRequest()
       .setComponentUuids(asList(file.uuid()));
 
     IssueQuery query = underTest.create(request);
 
     assertThat(query.fileUuids()).containsExactly(file.uuid());
+  }
+
+  @Test
+  public void search_using_branch() {
+    ComponentDto project = db.components().insertPrivateProject();
+    ComponentDto branch = db.components().insertProjectBranch(project);
+    ComponentDto file = db.components().insertComponent(newFileDto(branch));
+
+    IssueQuery issueQuery = underTest.create(new SearchWsRequest()
+      .setComponentKeys(singletonList(branch.getKey()))
+      .setBranch(branch.getBranch()));
+      assertThat(issueQuery.projectUuids()).containsExactly(branch.uuid());
+
+    issueQuery = underTest.create(new SearchWsRequest()
+      .setComponentKeys(asList(branch.getKey()))
+      .setFileUuids(singletonList(file.uuid()))
+      .setBranch(branch.getBranch()));
+    assertThat(issueQuery.projectUuids()).containsExactly(branch.uuid());
+    assertThat(issueQuery.fileUuids()).containsExactly(file.uuid());
   }
 
   @Test
