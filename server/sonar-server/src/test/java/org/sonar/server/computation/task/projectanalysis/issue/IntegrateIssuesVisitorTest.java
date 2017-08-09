@@ -54,12 +54,13 @@ import org.sonar.db.rule.RuleDto;
 import org.sonar.db.rule.RuleTesting;
 import org.sonar.scanner.protocol.Constants;
 import org.sonar.scanner.protocol.output.ScannerReport;
-import org.sonar.server.computation.task.projectanalysis.analysis.AnalysisMetadataHolderRule;
+import org.sonar.server.computation.task.projectanalysis.analysis.AnalysisMetadataHolder;
 import org.sonar.server.computation.task.projectanalysis.batch.BatchReportReaderRule;
 import org.sonar.server.computation.task.projectanalysis.component.Component;
+import org.sonar.server.computation.task.projectanalysis.component.Component.Status;
+import org.sonar.server.computation.task.projectanalysis.component.DefaultBranchImpl;
 import org.sonar.server.computation.task.projectanalysis.component.TreeRootHolderRule;
 import org.sonar.server.computation.task.projectanalysis.component.TypeAwareVisitor;
-import org.sonar.server.computation.task.projectanalysis.component.Component.Status;
 import org.sonar.server.computation.task.projectanalysis.filemove.MovedFilesRepository;
 import org.sonar.server.computation.task.projectanalysis.issue.commonrule.CommonRuleEngineImpl;
 import org.sonar.server.computation.task.projectanalysis.issue.filter.IssueFilter;
@@ -104,21 +105,22 @@ public class IntegrateIssuesVisitorTest {
   public SourceLinesRepositoryRule fileSourceRepository = new SourceLinesRepositoryRule();
 
   @Mock
-  AnalysisMetadataHolderRule analysisMetadataHolder;
+  private AnalysisMetadataHolder analysisMetadataHolder;
   @Mock
-  IssueFilter issueFilter;
+  private IssueFilter issueFilter;
   @Mock
-  MovedFilesRepository movedFilesRepository;
+  private MovedFilesRepository movedFilesRepository;
   @Mock
-  IssueLifecycle issueLifecycle;
+  private IssueLifecycle issueLifecycle;
   @Mock
-  IssueVisitor issueVisitor;
+  private IssueVisitor issueVisitor;
 
   ArgumentCaptor<DefaultIssue> defaultIssueCaptor = ArgumentCaptor.forClass(DefaultIssue.class);
 
-  BaseIssuesLoader baseIssuesLoader = new BaseIssuesLoader(treeRootHolder, dbTester.getDbClient(), ruleRepositoryRule, activeRulesHolderRule);
+  ComponentIssuesLoader issuesLoader = new ComponentIssuesLoader(dbTester.getDbClient(), ruleRepositoryRule, activeRulesHolderRule);
 
   TrackerExecution tracker;
+  ShortBranchTrackerExecution shortBranchTrackerExecution;
   IssueCache issueCache;
   ComponentsWithUnprocessedIssues componentsWithUnprocessedIssues = new ComponentsWithUnprocessedIssues();
 
@@ -129,17 +131,18 @@ public class IntegrateIssuesVisitorTest {
     MockitoAnnotations.initMocks(this);
     IssueVisitors issueVisitors = new IssueVisitors(new IssueVisitor[] {issueVisitor});
 
-    tracker = new TrackerExecution(new TrackerBaseInputFactory(baseIssuesLoader, dbTester.getDbClient(), movedFilesRepository),
+    tracker = new TrackerExecution(new TrackerBaseInputFactory(issuesLoader, dbTester.getDbClient(), movedFilesRepository),
       new TrackerRawInputFactory(treeRootHolder, reportReader, fileSourceRepository, new CommonRuleEngineImpl(), issueFilter),
       new Tracker<>());
 
     treeRootHolder.setRoot(PROJECT);
     issueCache = new IssueCache(temp.newFile(), System2.INSTANCE);
     when(analysisMetadataHolder.isIncrementalAnalysis()).thenReturn(false);
+    when(analysisMetadataHolder.getBranch()).thenReturn(java.util.Optional.of(new DefaultBranchImpl()));
     when(issueFilter.accept(any(DefaultIssue.class), eq(FILE))).thenReturn(true);
     when(movedFilesRepository.getOriginalFile(any(Component.class))).thenReturn(Optional.<MovedFilesRepository.OriginalFile>absent());
     underTest = new IntegrateIssuesVisitor(tracker, issueCache, issueLifecycle, issueVisitors, componentsWithUnprocessedIssues,
-      movedFilesRepository, baseIssuesLoader, analysisMetadataHolder);
+      movedFilesRepository, issuesLoader, analysisMetadataHolder, shortBranchTrackerExecution);
   }
 
   @Test
@@ -156,9 +159,6 @@ public class IntegrateIssuesVisitorTest {
     addBaseIssue(RuleTesting.XOO_X1);
 
     underTest.visitAny(file);
-
-    verify(issueLifecycle).updateExistingOpenissue(defaultIssueCaptor.capture());
-    assertThat(defaultIssueCaptor.getValue().ruleKey().rule()).isEqualTo("x1");
 
     verify(issueLifecycle).doAutomaticTransition(defaultIssueCaptor.capture());
     assertThat(defaultIssueCaptor.getValue().ruleKey().rule()).isEqualTo("x1");

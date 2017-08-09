@@ -21,12 +21,15 @@ package org.sonar.server.computation.task.projectanalysis.issue;
 
 import static org.sonar.server.computation.task.projectanalysis.component.ComponentVisitor.Order.POST_ORDER;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 import org.sonar.core.issue.DefaultIssue;
 import org.sonar.core.issue.tracking.Tracking;
+import org.sonar.db.component.BranchType;
 import org.sonar.server.computation.task.projectanalysis.analysis.AnalysisMetadataHolder;
+import org.sonar.server.computation.task.projectanalysis.analysis.Branch;
 import org.sonar.server.computation.task.projectanalysis.component.Component;
 import org.sonar.server.computation.task.projectanalysis.component.Component.Status;
 import org.sonar.server.computation.task.projectanalysis.component.CrawlerDepthLimit;
@@ -44,12 +47,13 @@ public class IntegrateIssuesVisitor extends TypeAwareVisitorAdapter {
   private final IssueVisitors issueVisitors;
   private final ComponentsWithUnprocessedIssues componentsWithUnprocessedIssues;
   private final MovedFilesRepository movedFilesRepository;
-  private final BaseIssuesLoader baseIssuesLoader;
+  private final ComponentIssuesLoader issuesLoader;
   private final AnalysisMetadataHolder analysisMetadataHolder;
+  private final ShortBranchTrackerExecution shortBranchTrackerExecution;
 
   public IntegrateIssuesVisitor(TrackerExecution tracker, IssueCache issueCache, IssueLifecycle issueLifecycle, IssueVisitors issueVisitors,
-    ComponentsWithUnprocessedIssues componentsWithUnprocessedIssues, MovedFilesRepository movedFilesRepository, BaseIssuesLoader baseIssuesLoader, 
-    AnalysisMetadataHolder analysisMetadataHolder) {
+    ComponentsWithUnprocessedIssues componentsWithUnprocessedIssues, MovedFilesRepository movedFilesRepository, ComponentIssuesLoader issuesLoader,
+    AnalysisMetadataHolder analysisMetadataHolder, ShortBranchTrackerExecution shortBranchTrackerExecution) {
     super(CrawlerDepthLimit.FILE, POST_ORDER);
     this.tracker = tracker;
     this.issueCache = issueCache;
@@ -57,8 +61,9 @@ public class IntegrateIssuesVisitor extends TypeAwareVisitorAdapter {
     this.issueVisitors = issueVisitors;
     this.componentsWithUnprocessedIssues = componentsWithUnprocessedIssues;
     this.movedFilesRepository = movedFilesRepository;
-    this.baseIssuesLoader = baseIssuesLoader;
+    this.issuesLoader = issuesLoader;
     this.analysisMetadataHolder = analysisMetadataHolder;
+    this.shortBranchTrackerExecution = shortBranchTrackerExecution;
   }
 
   @Override
@@ -73,47 +78,63 @@ public class IntegrateIssuesVisitor extends TypeAwareVisitorAdapter {
   }
 
   private void processIssues(Component component) {
-    DiskCache<DefaultIssue>.DiskAppender cacheAppender = issueCache.newAppender();
-    try {
+    try (DiskCache<DefaultIssue>.DiskAppender cacheAppender = issueCache.newAppender()) {
       issueVisitors.beforeComponent(component);
-      if (isIncremental(component)) {
-        fillIncrementalOpenIssues(component, cacheAppender);
+
+      if (isShortLivingBranch()) {
+        ShortBranchTracking shortBranchTracking = shortBranchTrackerExecution.track(component);
+        fillNewOpenIssues(component, shortBranchTracking.getUnmatchedRaws(), cacheAppender);
+        fillExistingOpenIssues(component, shortBranchTracking.getMatchedWithBase(), cacheAppender);
+        fillExistingLongBranchOpenIssues(component, shortBranchTracking.getMatchedWithMergeBranch(), cacheAppender);
+        closeUnmatchedBaseIssues(component, shortBranchTracking.getUnmatchedBases(), cacheAppender);
+      } else if (isIncremental(component)) {
+        List<DefaultIssue> issues = issuesLoader.loadForComponentUuid(component.getUuid());
+        fillIncrementalOpenIssues(component, issues, cacheAppender);
       } else {
         Tracking<DefaultIssue, DefaultIssue> tracking = tracker.track(component);
-        fillNewOpenIssues(component, tracking, cacheAppender);
-        fillExistingOpenIssues(component, tracking, cacheAppender);
-        closeUnmatchedBaseIssues(component, tracking, cacheAppender);
+        fillNewOpenIssues(component, tracking.getUnmatchedRaws(), cacheAppender);
+        fillExistingOpenIssues(component, tracking.getMatchedRaws(), cacheAppender);
+        closeUnmatchedBaseIssues(component, tracking.getUnmatchedBases(), cacheAppender);
       }
       issueVisitors.afterComponent(component);
     } catch (Exception e) {
       throw new IllegalStateException(String.format("Fail to process issues of component '%s'", component.getKey()), e);
-    } finally {
-      cacheAppender.close();
     }
+  }
+
+  private boolean isShortLivingBranch() {
+    java.util.Optional<Branch> branch = analysisMetadataHolder.getBranch();
+    return branch.isPresent() && branch.get().getType() == BranchType.SHORT;
   }
 
   private boolean isIncremental(Component component) {
     return analysisMetadataHolder.isIncrementalAnalysis() && component.getStatus() == Status.SAME;
   }
 
-  private void fillNewOpenIssues(Component component, Tracking<DefaultIssue, DefaultIssue> tracking, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
-    for (DefaultIssue issue : tracking.getUnmatchedRaws()) {
+  private void fillNewOpenIssues(Component component, Iterable<DefaultIssue> issues, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
+    for (DefaultIssue issue : issues) {
       issueLifecycle.initNewOpenIssue(issue);
       process(component, issue, cacheAppender);
     }
   }
 
-  private void fillIncrementalOpenIssues(Component component, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
-    List<DefaultIssue> issues = baseIssuesLoader.loadForComponentUuid(component.getUuid());
+  private void fillExistingLongBranchOpenIssues(Component component, Map<DefaultIssue, DefaultIssue> issues, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
+    for (Map.Entry<DefaultIssue, DefaultIssue> entry : issues.entrySet()) {
+      DefaultIssue raw = entry.getKey();
+      DefaultIssue base = entry.getValue();
+      issueLifecycle.copyExistingOpenIssue(raw, base);
+      process(component, raw, cacheAppender);
+    }
+  }
 
+  private void fillIncrementalOpenIssues(Component component, Collection<DefaultIssue> issues, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
     for (DefaultIssue issue : issues) {
-      issueLifecycle.updateExistingOpenissue(issue);
       process(component, issue, cacheAppender);
     }
   }
 
-  private void fillExistingOpenIssues(Component component, Tracking<DefaultIssue, DefaultIssue> tracking, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
-    for (Map.Entry<DefaultIssue, DefaultIssue> entry : tracking.getMatchedRaws().entrySet()) {
+  private void fillExistingOpenIssues(Component component, Map<DefaultIssue, DefaultIssue> matched, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
+    for (Map.Entry<DefaultIssue, DefaultIssue> entry : matched.entrySet()) {
       DefaultIssue raw = entry.getKey();
       DefaultIssue base = entry.getValue();
       issueLifecycle.mergeExistingOpenIssue(raw, base);
@@ -121,8 +142,8 @@ public class IntegrateIssuesVisitor extends TypeAwareVisitorAdapter {
     }
   }
 
-  private void closeUnmatchedBaseIssues(Component component, Tracking<DefaultIssue, DefaultIssue> tracking, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
-    for (DefaultIssue issue : tracking.getUnmatchedBases()) {
+  private void closeUnmatchedBaseIssues(Component component, Iterable<DefaultIssue> issues, DiskCache<DefaultIssue>.DiskAppender cacheAppender) {
+    for (DefaultIssue issue : issues) {
       // TODO should replace flag "beingClosed" by express call to transition "automaticClose"
       issue.setBeingClosed(true);
       // TODO manual issues -> was updater.setResolution(newIssue, Issue.RESOLUTION_REMOVED, changeContext);. Is it a problem ?

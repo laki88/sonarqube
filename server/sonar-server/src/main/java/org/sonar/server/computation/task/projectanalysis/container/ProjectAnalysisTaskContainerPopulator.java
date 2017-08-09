@@ -49,6 +49,7 @@ import org.sonar.server.computation.task.projectanalysis.filemove.SourceSimilari
 import org.sonar.server.computation.task.projectanalysis.filesystem.ComputationTempFolderProvider;
 import org.sonar.server.computation.task.projectanalysis.issue.BaseIssuesLoader;
 import org.sonar.server.computation.task.projectanalysis.issue.CloseIssuesOnRemovedComponentsVisitor;
+import org.sonar.server.computation.task.projectanalysis.issue.ComponentIssuesLoader;
 import org.sonar.server.computation.task.projectanalysis.issue.ComponentIssuesRepositoryImpl;
 import org.sonar.server.computation.task.projectanalysis.issue.ComponentsWithUnprocessedIssues;
 import org.sonar.server.computation.task.projectanalysis.issue.DebtCalculator;
@@ -63,6 +64,7 @@ import org.sonar.server.computation.task.projectanalysis.issue.IssueLifecycle;
 import org.sonar.server.computation.task.projectanalysis.issue.IssueVisitors;
 import org.sonar.server.computation.task.projectanalysis.issue.IssuesRepositoryVisitor;
 import org.sonar.server.computation.task.projectanalysis.issue.LoadComponentUuidsHavingOpenIssuesVisitor;
+import org.sonar.server.computation.task.projectanalysis.issue.MergeBranchIssuesLoader;
 import org.sonar.server.computation.task.projectanalysis.issue.MovedIssueVisitor;
 import org.sonar.server.computation.task.projectanalysis.issue.NewEffortAggregator;
 import org.sonar.server.computation.task.projectanalysis.issue.NewEffortCalculator;
@@ -71,8 +73,10 @@ import org.sonar.server.computation.task.projectanalysis.issue.RuleTagsCopier;
 import org.sonar.server.computation.task.projectanalysis.issue.RuleTypeCopier;
 import org.sonar.server.computation.task.projectanalysis.issue.ScmAccountToUser;
 import org.sonar.server.computation.task.projectanalysis.issue.ScmAccountToUserLoader;
+import org.sonar.server.computation.task.projectanalysis.issue.ShortBranchTrackerExecution;
 import org.sonar.server.computation.task.projectanalysis.issue.TrackerBaseInputFactory;
 import org.sonar.server.computation.task.projectanalysis.issue.TrackerExecution;
+import org.sonar.server.computation.task.projectanalysis.issue.TrackerMergeBranchInputFactory;
 import org.sonar.server.computation.task.projectanalysis.issue.TrackerRawInputFactory;
 import org.sonar.server.computation.task.projectanalysis.issue.UpdateConflictResolver;
 import org.sonar.server.computation.task.projectanalysis.issue.commonrule.BranchCoverageRule;
@@ -227,9 +231,13 @@ public final class ProjectAnalysisTaskContainerPopulator implements ContainerPop
       UpdateConflictResolver.class,
       TrackerBaseInputFactory.class,
       TrackerRawInputFactory.class,
+      TrackerMergeBranchInputFactory.class,
       Tracker.class,
       TrackerExecution.class,
+      ShortBranchTrackerExecution.class,
+      ComponentIssuesLoader.class,
       BaseIssuesLoader.class,
+      MergeBranchIssuesLoader.class,
 
       // filemove
       SourceSimilarityImpl.class,
