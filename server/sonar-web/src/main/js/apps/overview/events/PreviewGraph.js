@@ -32,16 +32,19 @@ import {
 } from '../../projectActivity/utils';
 import { getCustomGraph, getGraph } from '../../../helpers/storage';
 import { formatMeasure, getShortType } from '../../../helpers/measures';
-import type { Serie } from '../../../components/charts/AdvancedTimeline';
-import type { History, Metric } from '../types';
+/*:: import type { Serie } from '../../../components/charts/AdvancedTimeline'; */
+/*:: import type { History, Metric } from '../types'; */
 
+/*::
 type Props = {
   history: ?History,
   metrics: Array<Metric>,
   project: string,
   router: { replace: ({ pathname: string, query?: {} }) => void }
 };
+*/
 
+/*::
 type State = {
   customMetrics: Array<string>,
   graph: string,
@@ -50,16 +53,17 @@ type State = {
   tooltipIdx: ?number,
   tooltipXPos: ?number
 };
+*/
 
 const GRAPH_PADDING = [4, 0, 4, 0];
 const MAX_GRAPH_NB = 1;
 const MAX_SERIES_PER_GRAPH = 3;
 
 export default class PreviewGraph extends React.PureComponent {
-  props: Props;
-  state: State;
+  /*:: props: Props; */
+  /*:: state: State; */
 
-  constructor(props: Props) {
+  constructor(props /*: Props */) {
     super(props);
     const graph = getGraph();
     const customMetrics = getCustomGraph();
@@ -78,7 +82,7 @@ export default class PreviewGraph extends React.PureComponent {
     };
   }
 
-  componentWillReceiveProps(nextProps: Props) {
+  componentWillReceiveProps(nextProps /*: Props */) {
     if (nextProps.history !== this.props.history || nextProps.metrics !== this.props.metrics) {
       const graph = getGraph();
       const customMetrics = getCustomGraph();
@@ -95,11 +99,11 @@ export default class PreviewGraph extends React.PureComponent {
     }
   }
 
-  formatValue = (tick: number | string) =>
+  formatValue = (tick /*: number | string */) =>
     formatMeasure(tick, getShortType(getSeriesMetricType(this.state.series)));
 
-  getDisplayedMetrics = (graph: string, customMetrics: Array<string>): Array<string> => {
-    const metrics: Array<string> = getDisplayedHistoryMetrics(graph, customMetrics);
+  getDisplayedMetrics = (graph /*: string */, customMetrics /*: Array<string> */) => {
+    const metrics /*: Array<string> */ = getDisplayedHistoryMetrics(graph, customMetrics);
     if (!metrics || metrics.length <= 0) {
       return getDisplayedHistoryMetrics(DEFAULT_GRAPH, customMetrics);
     }
@@ -107,11 +111,11 @@ export default class PreviewGraph extends React.PureComponent {
   };
 
   getSeries = (
-    history: ?History,
-    graph: string,
-    customMetrics: Array<string>,
-    metrics: Array<Metric>
-  ): Array<Serie> => {
+    history /*: ?History */,
+    graph /*: string */,
+    customMetrics /*: Array<string> */,
+    metrics /*: Array<Metric> */
+  ) => {
     const myHistory = history;
     if (!myHistory) {
       return [];
@@ -134,8 +138,11 @@ export default class PreviewGraph extends React.PureComponent {
     this.props.router.replace({ pathname: '/project/activity', query: { id: this.props.project } });
   };
 
-  updateTooltip = (selectedDate: ?Date, tooltipXPos: ?number, tooltipIdx: ?number) =>
-    this.setState({ selectedDate, tooltipXPos, tooltipIdx });
+  updateTooltip = (
+    selectedDate /*: ?Date */,
+    tooltipXPos /*: ?number */,
+    tooltipIdx /*: ?number */
+  ) => this.setState({ selectedDate, tooltipXPos, tooltipIdx });
 
   render() {
     const { graph, selectedDate, series, tooltipIdx, tooltipXPos } = this.state;

@@ -21,13 +21,15 @@
 import React from 'react';
 import ProjectEventIcon from '../../../components/icons-components/ProjectEventIcon';
 import { translate } from '../../../helpers/l10n';
-import type { Event } from '../types';
+/*:: import type { Event } from '../types'; */
 
+/*::
 type Props = {
   events: Array<Event>
 };
+*/
 
-export default function GraphsTooltipsContentEvents({ events }: Props) {
+export default function GraphsTooltipsContentEvents({ events } /*: Props */) {
   return (
     <tbody>
       <tr>
